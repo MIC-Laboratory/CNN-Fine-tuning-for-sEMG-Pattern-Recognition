@@ -1,22 +1,22 @@
 """
     Description: Configuration Variables and Parameters
-    Author: Jimmy L. @ SF State MIC Lab
-    Date: Summer 2022
+    Author: Stella Parker @ SF State MIC Lab
+    Date: Started: October 2024 -Ongoing
 """
 # How many samples each sEMG image channel contains.
-window = 32
+window = 32 #32
 
 # Sliding step (for overlapping)
 step = 16
 
 # Kernel size for CNN
-k_size = (3, 3)
+kernel_size = (3, 3) #(5, 3) #(3, 3 )
 
 # Input shape for CNN
-in_shape = (8, window, 1)
+input_shape = (8, window, 1) #(8, window, 1) (8, 32, 1)
 
 # Pool kernel for CNN maxpooling
-p_kernel = (1, 2)
+pool_size =  (1, 2) #(1, 1) (3, 1)
 
 # Exercises with dedicated gestures stored
 exercises = ["E2"]
@@ -43,7 +43,7 @@ num_classes = len(targets) # 7
 filters = [48, 96]
 
 # Number of neurons for FFN the model contains.
-neurons = None
+neurons = None #[512, 256]
 
 # Whether to use depthwise seperatble CNN to reduce computation and parameters
 seperable_cnn = False
@@ -68,7 +68,7 @@ acc_log = 'visuals/acc_log.jpg'
 loss_log = 'visuals/loss_log.jpg'
 
 # Params info needed to load pretrained finetune-base model.
-prev_params = [num_classes, filters, neurons, dropout, k_size, in_shape, p_kernel]
+prev_params = [num_classes, filters, neurons, dropout, kernel_size, input_shape, pool_size]
 
 # Path of json with MEAN and Standard Deviation for each sensor Channel.
 std_mean_path = "scaling_params.json"

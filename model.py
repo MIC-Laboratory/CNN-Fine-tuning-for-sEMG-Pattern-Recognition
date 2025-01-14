@@ -1,300 +1,335 @@
 """
-    Description: Code for A.I. model implementation and utility functions for it.
-    Author: Jimmy L. @ SF State MIC Lab
-    Date: Summer 2022
+Description: Code for A.I. model implementation and utility functions.
+Author: Stella Parker @ SF State MIC Lab
+Date: Started: October 2024 -Ongoing
 """
-from tabnanny import verbose
-import tensorflow as tf
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
-from matplotlib import pyplot as plt
-tf.get_logger().setLevel('INFO')
+import matplotlib.pyplot as plt
+import copy
 
 
-def get_model(num_classes=4, filters=[32, 64], neurons=None, dropout=0.5,
-              kernel_size=(5, 3), input_shape=(52, 8, 1), pool_size=(3, 1)):
-    assert len(filters) == 2
+def get_model(
+    num_classes=4,
+    filters=None,
+    neurons=None,
+    dropout=0.5,
+    kernel_size=(5, 3),
+    input_shape=(52, 8, 1),
+    pool_size=(3, 1),
+):
     """
     Purpose:
         Establish the architecture for the finetune-base A.I. model.
 
     Args:
-        1. num_classes (int, optional):
-            Number of classes/gestures to classify. Defaults to 4.
-            
-        2. filters (1D list, optional):
-            A list specifying number of output filters for the first and second 2D CNN. Defaults to [32, 64].
-            
-        3. neurons (1D list, optional):
-            A list specifying number of neurons for the first and second neural network. Defaults to None.
-            
-        4. dropout (float, optional):
-            Dropout rate. Defaults to 0.5.
-        
-        5. kernel_size (tuple):
-            kernel window size for CNN. Defaults to (3, 5)
-        
-        6. input_shape (tuple):
-            Input shape for CNN. Defaults to (8, 52, 1) channel LAST
+        num_classes (int, optional): Number of classes/gestures to classify. Defaults to 4.
+        filters (list, optional): Output filters for the first and second 2D CNN. Defaults to None.
+        neurons (list, optional): Number of neurons for the first and second neural network. Defaults to None.
+        dropout (float, optional): Dropout rate. Defaults to 0.5.
+        kernel_size (tuple, optional): Kernel window size for CNN. Defaults to (5, 3).
+        input_shape (tuple, optional): Input shape for CNN. Defaults to (52, 8, 1).
+        pool_size (tuple, optional): Max pool size. Defaults to (3, 1).
 
     Returns:
-        1. model (keras.engine.sequential.Sequential):
-            - The finetune-base model takes inputs of shape:
-                    
-                    [batch_size, 1, 8, 52]
-                    
-                - batch_size is batch_size
-                - 1 refers to input channels. (like 3 from RGB images)
-                - 8 refers to number of Myo armband sensors/channels (vertical width)
-                - 52 refers to window size, how many samples included per sensor/channel (horizontal length)
+        model (nn.Module): The finetune-base model.
     """
 
-    CNN1 = tf.keras.layers.Conv2D(
-            filters=filters[0],
-            strides=1,
-            kernel_size=kernel_size, # 3x5 window
-            activation='relu',
-            input_shape=input_shape
-        )
-    CNN2 = tf.keras.layers.Conv2D(
-        filters=filters[1],
-        strides=1,
-        kernel_size=kernel_size, # 3x5 window
-        activation='relu'
-    )
+    if filters is None:
+        filters = [32, 64]
 
-    model = tf.keras.Sequential([
-        # """
-        # First CNN Feature Extraction Block
-        # """
-        CNN1,
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.PReLU(),
-        tf.keras.layers.SpatialDropout2D(rate=dropout),
-        tf.keras.layers.MaxPool2D(pool_size=pool_size),
-        # """
-        # Second CNN Feature Extraction Block
-        # """
-        CNN2,
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.PReLU(),
-        tf.keras.layers.SpatialDropout2D(rate=dropout),
-        tf.keras.layers.MaxPool2D(pool_size=pool_size),
-        
-        tf.keras.layers.Flatten()
-    ])
-    if neurons != None:
-        for ffn_size in neurons:
-            model.add(tf.keras.layers.Dense(ffn_size))
-            model.add(tf.keras.layers.PReLU())
-            
-    # """
-    # Last Forward Neural Network (Classifier Block)
-    # """
-    model.add(tf.keras.layers.Dense(num_classes))
-    model.add(tf.keras.layers.Softmax(axis=-1))
-    
+    class FinetuneBaseModel(nn.Module):
+        def __init__(self, num_classes, filters, neurons, dropout, kernel_size, pool_size):
+            super(FinetuneBaseModel, self).__init__()
+            self.cnn1 = nn.Conv2d(
+                in_channels=1,
+                out_channels=filters[0],
+                kernel_size=kernel_size, #kernel_size, keep track of this
+                stride=1,
+            )
+            self.bn1 = nn.BatchNorm2d(filters[0])
+            self.prelu1 = nn.PReLU()
+            self.drop1 = nn.Dropout(p=dropout)
+            self.pool1 = nn.MaxPool2d(pool_size)
+
+            self.cnn2 = nn.Conv2d(
+                in_channels=filters[0],
+                out_channels=filters[1],
+                kernel_size=kernel_size,
+                stride=1,
+            )
+            self.bn2 = nn.BatchNorm2d(filters[1])
+            self.prelu2 = nn.PReLU()
+            self.drop2 = nn.Dropout(p=dropout)
+            self.pool2 = nn.MaxPool2d(pool_size)
+
+            self.neurons = neurons
+            self.flatten = nn.Flatten()
+
+            if (neurons is not None) and (len(neurons) > 0):
+                ffn_modules = []
+                first_layer = nn.LazyLinear(neurons[0], bias=True)
+                ffn_modules.append(first_layer)
+                ffn_modules.append(nn.PReLU())
+
+                for i in range(len(neurons) - 1):
+                    ffn_modules.append(nn.LazyLinear(neurons[i], neurons[i + 1]))
+                    ffn_modules.append(nn.PReLU())
+
+                self.ffn = nn.Sequential(*ffn_modules)
+                self.classifier = nn.LazyLinear(neurons[-1], num_classes)
+            else:
+                self.ffn = None
+                self.classifier = nn.LazyLinear(num_classes, bias=True)
+
+            self.softmax = nn.Softmax(dim=1)
+
+        def forward(self, x):
+            x = self.cnn1(x)
+            x = self.bn1(x)
+            x = self.prelu1(x)
+            x = self.drop1(x)
+            x = self.pool1(x)
+
+            x = self.cnn2(x)
+            x = self.bn2(x)
+            x = self.prelu2(x)
+            x = self.drop2(x)
+            x = self.pool2(x)
+
+            x = self.flatten(x)
+
+            if self.ffn is not None:
+                x = self.ffn(x)
+            x = self.classifier(x)
+            x = self.softmax(x)
+            return x
+
+    model = FinetuneBaseModel(num_classes, filters, neurons, dropout, kernel_size, pool_size)
     return model
 
 
-def create_finetune(base_model, num_classes=4):
+def create_finetune(model, num_classes=4):
     """
     Purpose:
-        Generate a new finetune model from the pretrained finetune-base model
-        NOTE: Last neural net block of the 'base_model'(from args) replaced a new block of 'num_classes'(from args) neurons
+        Generate a new finetune model from the pretrained base model.
+        Creating a deep copy of the base_model so that the newly created
+        finetune_model can be modified without altering the original base_model.
 
     Args:
-        1. base_model (keras.engine.sequential.Sequential):
-            The pretrained finetune-base model.
-            
-        2. num_classes (int, optional):
-            Number of gestures/classes the finetune model would like to classify. Defaults to 4.
+        model (nn.Module): The pretrained finetune-base model.
+        num_classes (int, optional): Number of gestures/classes for the new model. Defaults to 4.
 
     Returns:
-        1. new_model (keras.engine.sequential.Sequential):
-            - The new finetune model with majority architecture derived from the 'base_model'(from args)
-            - The finetune model takes inputs of shape:
-                    
-                    [batch_size, 8, 52, 1]
-                    
-                - batch_size is batch_size
-                - 1 refers to input channels. (like 3 from RGB images)
-                - 8 refers to number of Myo armband sensors/channels (vertical width)
-                - 52 refers to window size, how many samples included per sensor/channel (horizontal length)
+        new_model (nn.Module): The new finetune model.
     """
-    new_model = tf.keras.Sequential()
-    # Append through until last 2 layers (classifier block + softmax layer)s
-    for layer in base_model.layers[:-2]:
-        new_model.add(layer)
-
-    # Add new blocks of output classifier neural net.
-    new_model.add(tf.keras.layers.Dense(num_classes))
-    new_model.add(tf.keras.layers.Softmax(axis=-1))
+    new_model = copy.deepcopy(model)
+    if hasattr(new_model, "classifier"):
+        old_in = new_model.classifier.in_features
+        new_model.classifier = nn.LazyLinear(old_in, num_classes)
+    new_model.softmax = nn.Softmax(dim=1)
     return new_model
 
 
 def get_pretrained(path, prev_params):
+    """
+    Purpose:
+        Load a pretrained finetune-base model given its checkpoint path.
+        prev_params structure:
+        prev_params[0] ⇒ num_classes
+        prev_params[1] ⇒ filters ([32, 64])
+        prev_params[2] ⇒ neurons ([512, 128] or None)
+        prev_params[3] ⇒ dropout (0.5)
+        prev_params[4] ⇒ kernel_size (5, 3))
+        prev_params[5] ⇒ input_shape ((52, 8, 1))
+        prev_params[6] ⇒ pool_size ((3, 1))
+
+    Args:
+        path (str): Path of pretrained weights of the finetune-base model.
+        prev_params (list): Parameter specification of the pretrained finetune-base model.
+
+    Returns:
+        base_model (nn.Module): A PyTorch model loaded with the weights from 'path'.
+    """
     base_model = get_model(
-        num_classes=prev_params[0], # 4
-        filters=prev_params[1], # [32, 64]
-        neurons=prev_params[2], # [512, 128]
-        dropout=prev_params[3], # 0.5
+        num_classes=prev_params[0],
+        filters=prev_params[1],
+        neurons=prev_params[2],
+        dropout=prev_params[3],
         kernel_size=prev_params[4],
         input_shape=prev_params[5],
-        pool_size=prev_params[6]
+        pool_size=prev_params[6],
     )
-    # Load pretrained weights
-    base_model.load_weights(path).expect_partial()
-    base_model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.01),
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy'],
-    )
+    base_model.load_state_dict(torch.load(path, map_location="gpu"))
     return base_model
 
 
-def get_finetune(path, prev_params, lr=0.0001, num_classes=4):
+def get_finetune(path, prev_params, lr=0.2, num_classes=4):
     """
     Purpose:
-        Direct return a new finetune-model, with finetune-base model loaded with 'path'(from args).
+        Load a pretrained finetune model given its checkpoint path.
+        prev_params structure:
+        prev_params[0] ⇒ num_classes
+        prev_params[1] ⇒ filters ([32, 64])
+        prev_params[2] ⇒ neurons ([512, 128] or None)
+        prev_params[3] ⇒ dropout (0.5)
+        prev_params[4] ⇒ kernel_size (5, 3))
+        prev_params[5] ⇒ input_shape ((52, 8, 1))
+        prev_params[6] ⇒ pool_size ((3, 1))
 
     Args:
-        1. path (str):
-            - Path of pretrained weights of finetune-base model
-        
-        2. prev_params (list):
-            - Parameters specification of the pretrained finetune-base model
-        
-        3. lr (float, optional):
-            - Learning rate for the new finetune model (recommend setting small learning rate). Defaults to 0.0001.
-            
-        4. num_classes (int, optional):
-            - Number of gestures/classes the new finetune model would like to classify. Defaults to 4.
+        path (str): Path of pretrained weights of the finetune model.
+        prev_params (list): Parameter specification of the pretrained finetune model
+        num_classes (int, optional): Number of gestures/classes for the new model. Defaults to 4.
 
     Returns:
-        1. finetune_model (keras.engine.sequential.Sequential):
-            - The new finetune model with majority architecture derived from the 'base_model'(from args)
-            - The finetune model takes inputs of shape:
-                    
-                    [batch_size, 1, 8, 52]
-                    
-                - batch_size is batch_size
-                - 1 refers to input channels. (like 3 from RGB images)
-                - 8 refers to number of Myo armband sensors/channels (vertical width)
-                - 52 refers to window size, how many samples included per sensor/channel (horizontal length)
+        finetune_model (nn.Module): A PyTorch model loaded with the weights from 'path'.
     """
-    # Get architecture of finetune-base model
     base_model = get_model(
-        num_classes=prev_params[0], # 4
-        filters=prev_params[1], # [32, 64]
-        neurons=prev_params[2], # [512, 128]
-        dropout=prev_params[3], # 0.5
+        num_classes=prev_params[0],
+        filters=prev_params[1],
+        neurons=prev_params[2],
+        dropout=prev_params[3],
         kernel_size=prev_params[4],
         input_shape=prev_params[5],
-        pool_size=prev_params[6]
+        pool_size=prev_params[6],
     )
-    # Load pretrained weights
-    base_model.load_weights(path).expect_partial()
-    
-    # Create finetune model
+    base_model.load_state_dict(torch.load(path, map_location="gpu"))
     finetune_model = create_finetune(base_model, num_classes=num_classes)
-    
-    # Compile finetune model with optimizer, loss funcs, eval metrics
-    finetune_model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy'],
-    )
-    
     return finetune_model
 
 
-def train_model(model, X_train, y_train, X_test, y_test, batch_size,
-                save_path=None, epochs=200, patience=80, lr=0.2, decay_rate=0.9):
+def train_model(
+    model,
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    batch_size,
+    save_path=None,
+    epochs=200,
+    patience=50,
+    lr=0.2,
+    decay_rate=0.9,
+):
     """
     Purpose:
-        Train the finetune-base model
+        Train the finetune-base model.
 
     Args:
-        1. model (keras.engine.sequential.Sequential):
-            The finetune-base model to train
-        
-        2. X_train (numpy.ndarray):
-            The training input. Shape: [number of samples, 1, 8(sensors/channels), 52(window size)]
-        
-        3. y_train (numpy.ndarray):
-            The training target/label. Shape: [number of samples]
-        
-        4. X_test (numpy.ndarray):
-            The testing input. Shape: [number of samples, 1, 8(sensors/channels), 52(window size)]
-        
-        5. y_test (numpy.ndarray):
-            The testing target/label. Shape: [number of samples]
-        
-        6. batch_size (int):
-            Batch_size for training the finetune-base model
-        
-        7. save_path (str):
-            Path to save the finetune-base model's weights. (Should end with '.ckpt').
-        
-        8. epochs (int, optional):
-            Number of training epochs. Defaults to 200.
-            
-        9. patience (int, optional):
-            The number of epochs without improvement after which training will be early stopped. Defaults to 80.
-             
-        10. lr (float, optional):
-            Initial learning rate for training the finetune-base model. Defaults to 0.2.
-            
-        11. decay_rate (float, optional):
-            Decay rate of learning rate scheduler. Defaults to 0.9.
+        model (nn.Module): The finetune-base model to train.
+        X_train (numpy.ndarray): The training input. Shape: [n_samples, 1, 8, 52].
+        y_train (numpy.ndarray): The training target/label.
+        X_test (numpy.ndarray): The testing input. Shape: [n_samples, 1, 8, 52].
+        y_test (numpy.ndarray): The testing target/label.
+        batch_size (int): Batch_size for training.
+        save_path (str): Path to save the model's weights. Ends with '.pth' or '.ckpt'.
+        epochs (int, optional): Number of training epochs. Defaults to 200.
+        patience (int, optional): Number of epochs without improvement for early stopping. Defaults to 50. 80?
+        lr (float, optional): Initial learning rate. Defaults to 0.2.
+        decay_rate (float, optional): Exponential decay rate for LR. Defaults to 0.9.
 
     Returns:
-        1. history (keras.callbacks.History):
-            History log of training loss and accuracies.
-            
-    Additional Note: Use .save_weights(f"{name}.ckpt") to replicate this
+        history (dict): A dictionary containing training and validation logs.
     """
-    callback_lists = []
-    
-    # Save model weights to 'save_path'(from args) if provided.
-    if save_path != None:
-        checkpoint = tf.keras.callbacks.ModelCheckpoint(
-            save_path, monitor='val_loss', verbose=1, save_freq='epoch',
-            save_best_only=True, mode='min', save_weights_only=True
+    X_train = torch.tensor(X_train, dtype=torch.float32)
+    y_train = torch.tensor(y_train, dtype=torch.long)
+    X_test = torch.tensor(X_test, dtype=torch.float32)
+    y_test = torch.tensor(y_test, dtype=torch.long)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
+    test_dataset = torch.utils.data.TensorDataset(X_test, y_test)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    # scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
+    criterion = nn.CrossEntropyLoss()
+
+    best_val_loss = float("inf")
+    patience_counter = 0
+
+    history = {
+        "train_loss": [],
+        "val_loss": [],
+        "train_acc": [],
+        "val_acc": [],
+    }
+
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        correct = 0
+        total = 0
+
+        for batch_x, batch_y in train_loader:
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            optimizer.zero_grad()
+            outputs = model(batch_x)
+            loss = criterion(outputs, batch_y)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item() * batch_x.size(0)
+            _, predicted = torch.max(outputs, 1)
+            correct += (predicted == batch_y).sum().item()
+            total += batch_y.size(0)
+
+        # scheduler.step()
+
+        train_loss = running_loss / total
+        train_acc = correct / total
+
+        model.eval()
+        val_loss = 0.0
+        val_correct = 0
+        val_total = 0
+        with torch.no_grad():
+            for batch_x, batch_y in test_loader:
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+                outputs = model(batch_x)
+                loss = criterion(outputs, batch_y)
+
+                val_loss += loss.item() * batch_x.size(0)
+                _, predicted = torch.max(outputs, 1)
+                val_correct += (predicted == batch_y).sum().item()
+                val_total += batch_x.size(0)
+
+        val_loss /= val_total
+        val_acc = val_correct / val_total
+
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+        history["train_acc"].append(train_acc)
+        history["val_acc"].append(val_acc)
+
+        print(
+            f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f}"
+            f" | Train Acc: {train_acc:.4f} | Val Loss: {val_loss:.4f}"
+            f" | Val Acc: {val_acc:.4f}"
         )
-        callback_lists.append(checkpoint)
-    
-    # Add early stopping
-    early = tf.keras.callbacks.EarlyStopping(
-        monitor="val_loss", mode="min", patience=patience
-    )
-    callback_lists.append(early)
-    
-    # Get learning rate scheduler.
-    decay_steps = (len(X_train) / batch_size) * 1.5
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=lr,
-        decay_steps=decay_steps,
-        decay_rate=decay_rate
-    )
-    
-    # Compile model with optimizer, loss funcs, eval metrics
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy'],
-    )
-    
-    # Model fitting
-    history = model.fit(
-        X_train,
-        y_train,
-        batch_size=batch_size,
-        epochs=epochs,
-        validation_data=(X_test, y_test),
-        callbacks=callback_lists
-    )
-    
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            if save_path is not None:
+                torch.save(model.state_dict(), save_path)
+                print(f"Saved best model to {save_path}")
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch + 1}")
+                break
+
     return history
 
 
@@ -304,126 +339,50 @@ def plot_logs(history, acc=True, save_path=None):
         Plot loss and accuracy logs from model training.
 
     Args:
-        1. history (keras.callbacks.History):
-            The loss and accuracy log output from model training
-            
-        2. acc (bool, optional):
-            Whether to plot training accurcy logs. Defaults to True. (False -> plot loss logs)
-        
-        3. save_path (str, optional):
-            Path to save plot. (Should end with '.jpg') Defaults to None.
+        history (dict): The loss and accuracy log output from model training with
+                        keys: ['loss', 'val_loss', 'accuracy', 'val_accuracy'].
+        acc (bool, optional): Whether to plot training accuracy logs. Defaults to True.
+        save_path (str, optional): Path to save plot. Should end with '.jpg'. Defaults to None.
     """
-    if acc == True:
-        params = ["accuracy", "val_accuracy", "model accuracy", "accuracy"]
+    if acc:
+        params = {"acuracy", "val_accuracy", "model accuracy", "accuracy"}
     else:
-        params = ["loss", "val_loss", "model loss", "loss"]
-    
+        params = {"loss", "val_loss", "model loss", "loss"}
+
     plt.figure(figsize=(20, 6))
-    plt.plot(history.history[params[0]])
-    plt.plot(history.history[params[1]])
+    plt.plot(history[params[0]], label="Train")
+    plt.plot(history[params[1]], label="Validation")
     plt.title(params[2])
     plt.ylabel(params[3])
-    plt.xlabel('epoch')
-    plt.legend(['train', 'val'], loc='upper left')
-    plt.savefig(save_path)
+    plt.xlabel("Epoch")
+    plt.legend(loc="upper left")
+
+    if save_path is not None:
+        plt.savefig(save_path)
     plt.show()
 
-tf.get_logger().setLevel('INFO')
+
 def realtime_pred(model, sEMG, num_channels=8, window_length=32):
     """
     Purpose:
         Perform realtime predictions with the finetuned model.
-    
+
     Args:
-        1. model (keras.engine.sequential.Sequential):
-            The finetuned model
-            
-        2. sEMG (numpy.ndarray):
-            The realtime sEMG samples to input
-            
-        3. num_channels (int, optional):
-            Number of Myo Armband sensors/channels. Defaults to 8.
-            
-        4. window_length (int, optional):
-            How many samples included per sensor/channel (horizontal length). Defaults to 52.
+        model (nn.Module): The finetuned model.
+        sEMG (numpy.ndarray): The realtime sEMG samples to input.
+        num_channels (int, optional): Number of sensors/channels. Defaults to 8.
+        window_length (int, optional): Samples included per sensor/channel. Defaults to 32.
 
     Returns:
-        (numpy.int64):
-            The model prediction index
+        int: The model prediction index.
     """
-    # Reshape sample to proper sEMG image
-    sEMG = np.array(sEMG).reshape(-1, num_channels, window_length, 1)
-    # Run model predictions
-    pred = model.predict(sEMG, verbose=0)
-    # Return location/index of maximum prediction value
-    return np.argmax(pred)
+    sEMG = np.array(sEMG).reshape(-1, 1, num_channels, window_length)
+    device = next(model.parameters()).device
+    sEMG_t = torch.tensor(sEMG, dtype=torch.float32, device=device)
 
+    model.eval()
+    with torch.no_grad():
+        pred = model(sEMG_t)
+        pred_idx = torch.argmax(pred, dim=1).item()
 
-#########
-# # NOTE: Tensorflow model implementation with sub-class method.
-#########
-
-# class Model(tf.keras.Model):
-#   def __init__(self, num_classes=4, filters=[32, 64], neurons=[512, 128], dropout=0.5):
-#     super(Model, self).__init__()
-#     self.conv_set1 = tf.keras.Sequential([
-#         tf.keras.layers.Conv2D(
-#             filters=filters[0],
-#             strides=1,
-#             kernel_size=(3, 5), # 3x5 window
-#             activation='relu',
-#             input_shape=(1, 8, 52),
-#             data_format="channels_first"
-#         ),
-#         tf.keras.layers.BatchNormalization(),
-#         tf.keras.layers.PReLU()
-#     ])
-    
-#     self.dropout1 = tf.keras.layers.SpatialDropout2D(rate=dropout, data_format='channels_first')
-#     self.maxpool1 = tf.keras.layers.MaxPool2D(pool_size=(1, 3), data_format='channels_first') # 1x3 window
-    
-#     self.conv_set2 = tf.keras.Sequential([
-#         tf.keras.layers.Conv2D(
-#             filters=filters[1],
-#             strides=1,
-#             kernel_size=(3, 5), # 3x5 window
-#             activation='relu',
-#             data_format="channels_first"
-#         ),
-#         tf.keras.layers.BatchNormalization(),
-#         tf.keras.layers.PReLU()
-#     ])
-    
-#     self.dropout2 = tf.keras.layers.SpatialDropout2D(rate=dropout, data_format='channels_first')
-#     self.maxpool2 = tf.keras.layers.MaxPool2D(pool_size=(1, 3), data_format='channels_first') # 1x3 window
-    
-#     self.flatten = tf.keras.layers.Flatten()
-    
-#     self.ffn = tf.keras.Sequential([
-#         tf.keras.layers.Dense(neurons[0]),
-#         tf.keras.layers.PReLU(),
-#         tf.keras.layers.Dense(neurons[1]),
-#         tf.keras.layers.PReLU(),
-#     ])
-        
-#     self.classifier = tf.keras.Sequential([
-#         tf.keras.layers.Dense(num_classes),
-#         tf.keras.layers.Softmax(axis=-1)
-#     ])
-    
-#   def call(self, inputs):
-#     out = self.conv_set1(inputs)
-#     out = self.dropout1(out)
-#     out = self.maxpool1(out)
-    
-#     out = self.conv_set2(inputs)
-#     out = self.dropout2(out)
-#     out = self.maxpool2(out)
-    
-#     out = self.flatten(out)
-
-#     out = self.ffn(out)
-    
-#     out = self.classifier(out)
-    
-#     return out
+    return pred_idx

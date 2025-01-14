@@ -5,92 +5,105 @@
             - Training finetune-base model (Saving weights along the way)
             - Visualize training logs (model accuracy and loss during training)
             
-    Author: Jimmy L. @ SF State MIC Lab
-    Date: Summer 2022
+    Author: Stella Parker @ SF State MIC Lab
+    Date: Started: October 2024 -Ongoing
 """
-from dataset import *
-from model import *
+import torch
+import numpy as np
 import config
-import tensorflow as tf
-
-
+from dataset import folder_extract, standarization,gestures,train_test_split, apply_window
+from model import (get_model, train_model, plot_logs, get_finetune   # If you plan to finetune
+    # create_finetune, # If you plan to create a finetune model
+)
 
 if __name__ == "__main__":
-    # NOTE: Check if Utilizing GPU device
-    print(tf.config.list_physical_devices('GPU'))
-    
-    # NOTE: Data Preprocessings
-    
-    # Get sEMG samples and labels. (shape: [num samples, 8(sensors/channels)])
+    # 1. Check GPU availability (PyTorch style)
+    gpu_available = torch.cuda.is_available()
+    print(f"GPU available? {gpu_available}")
+
+    # Data Preprocessing (uses dataset.py)
+    # Extract sEMG signals and labels
     emg, label = folder_extract(
         config.folder_path,
         exercises=config.exercises,
         myo_pref=config.myo_pref
     )
-    # Apply Standarization to data, save collected MEAN and STANDARD DEVIATION in the dataset to json
+
+    # Standardize signals (and optionally save mean/std to JSON)
     emg = standarization(emg, config.std_mean_path)
-    # Extract sEMG signals for wanted gestures.
+
+    # Keep only certain gesture labels
     gest = gestures(emg, label, targets=config.targets)
-    # Perform train test split
+
+    # Train-test split
     train_gestures, test_gestures = train_test_split(gest)
     
-    # NOTE: optional visualization that graphs class/gesture distributions
+    # (Optionally visualize gesture distribution)
     # plot_distribution(train_gestures)
     # plot_distribution(test_gestures)
-    
-    # Convert sEMG data to signal images.
-    X_train, y_train = apply_window(train_gestures, window=config.window, step=config.step)
-    # Convert sEMG data to signal images.
-    X_test, y_test = apply_window(test_gestures, window=config.window, step=config.step)
-    
-    X_train = X_train.reshape(-1, 8, config.window, 1)
-    X_test = X_test.reshape(-1, 8, config.window, 1)
-    
-    X_train = X_train.astype(np.float32)
-    X_test = X_test.astype(np.float32)
 
-    
-    print("Shape of Inputs:\n")
-    print(X_train.shape)
-    print(y_train.shape)
-    print(X_test.shape)
-    print(y_test.shape)
-    print("Data Type of Inputs\n")
-    print(X_train.dtype)
-    print(X_test.dtype)
-    print("\n")
-    
-    # Get Tensorflow model
+    # Convert sEMG data to image windows
+    X_train, y_train = apply_window(train_gestures, window=config.window, step=config.step)
+    X_test, y_test = apply_window(test_gestures, window=config.window, step=config.step)
+
+    # Reshape for CNN
+    X_train = X_train.reshape(-1, 8, config.window, 1)
+    X_test  = X_test.reshape(-1, 8, config.window, 1)
+
+    X_train = np.transpose(X_train, (0, 3, 1, 2))  # => (N, 1, 8, 32)
+    X_test  = np.transpose(X_test, (0, 3, 1, 2))
+
+    # Convert to float32
+    X_train = X_train.astype(np.float32)
+    X_test  = X_test.astype(np.float32)
+
+    print("Shape of Inputs:")
+    print("  X_train:", X_train.shape)
+    print("  y_train:", y_train.shape)
+    print("  X_test: ", X_test.shape)
+    print("  y_test: ", y_test.shape)
+    print("Data Types:")
+    print("  X_train dtype:", X_train.dtype)
+    print("  X_test dtype: ", X_test.dtype)
+    print()
+
+    # get_model() will return the new model
     cnn = get_model(
         num_classes=config.num_classes,
         filters=config.filters,
         neurons=config.neurons,
         dropout=config.dropout,
-        kernel_size=config.k_size,
-        input_shape=config.in_shape,
-        pool_size=config.p_kernel
+        kernel_size=config.kernel_size,
+        input_shape=config.input_shape, 
+        pool_size=config.pool_size
     )
-    
-    # Start training (And saving weights along training)
+
+    # train_model() will return a history object that contains training logs
     history = train_model(
-        cnn, X_train, y_train, X_test, y_test,
-        config.batch_size, save_path=config.save_path, epochs=config.epochs,
-        patience=config.patience, lr=config.inital_lr
+        model=cnn,
+        X_train=X_train, 
+        y_train=y_train,
+        X_test=X_test, 
+        y_test=y_test,
+        batch_size=config.batch_size,
+        save_path=config.save_path,
+        epochs=config.epochs,
+        patience=config.patience,
+        lr=config.inital_lr
     )
+    print("Training complete!")
     
-    # # Visualize accuarcy and loss logs
-    # plot_logs(history, acc=True, save_path=config.acc_log)
-    # plot_logs(history, acc=False, save_path=config.loss_log)
+    # done_msg = "Training complete! Model saved successfully."
+    # print(done_msg)
+    # with open(config.log_path, "a") as f:
+    # f.write(done_msg + "\n")
     
-    # # Load pretrained model
-    # model = get_model(
-    #     num_classes=config.num_classes,
-    #     filters=config.filters,
-    #     neurons=config.neurons,
-    #     dropout=config.dropout
-    # )
-    # model.load_weights(config.save_path)
-    
+    # # If you have stats from `history` you want to print:
+    # final_loss = history["val_loss"][-1] if len(history["val_loss"]) > 0 else None
+    # final_acc  = history["val_accuracy"][-1] if len(history["val_accuracy"]) > 0 else None
+    # summary_msg = f"Final Validation Loss: {final_loss}, Final Validation Accuracy: {final_acc}"
+    # print(summary_msg)
+    # f.write(summary_msg + "\n")
     # # NOTE: Optional test for loaded model's performance
     # model.compile(
     #         optimizer=tf.keras.optimizers.Adam(learning_rate=0.2),
@@ -100,11 +113,11 @@ if __name__ == "__main__":
     # # See if weights were the same
     # model.evaluate(X_test, y_test)
     
-    # # Test with finetune model. (last classifier block removed from base model)
-    # finetune_model = get_finetune(config.save_path, config.prev_params, num_classes=config.num_classes)
-    # print("finetune model loaded!")
+    # # # Test with finetune model. (last classifier block removed from base model)
+    # # finetune_model = get_finetune(config.save_path, config.prev_params, num_classes=config.num_classes)
+    # # print("finetune model loaded!")
     
-    # NOTE: You can load finetune model like this too.
+    # # NOTE: You can load finetune model like this too.
     # finetune_model = create_finetune(model, num_classes=4)
     # finetune_model.compile(
     #     optimizer=tf.keras.optimizers.Adam(learning_rate=0.2),

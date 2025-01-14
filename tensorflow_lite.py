@@ -90,8 +90,8 @@ if __name__ == "__main__":
     new_X1 = new_X1.astype(np.float32)
     new_X = new_X.astype(np.float32)
     
-    # Load finetuned model
-    model = get_pretrained("finetuned/checkpoint.ckpt", prev_params)
+    # Load finetuned model finetuned/checkpoint.ckpt
+    model = get_pretrained("finetuned/checkpoint.weights.h5", prev_params)
     
     # initialize object for Tensorflow Lite converter
     converter = tf.lite.TFLiteConverter.from_keras_model(model)

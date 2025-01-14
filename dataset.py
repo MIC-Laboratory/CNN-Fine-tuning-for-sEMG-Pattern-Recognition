@@ -1,50 +1,50 @@
-"""
-    Description: Utilities for extracting and preprocessing sEMG signals data.
-    Author: Jimmy L. @ SF State MIC Lab
-    Date: Summer 2022
-"""
+# """
+#     Description: Utilities for extracting and preprocessing sEMG signals data.
+#     Author: Jimmy L. @ SF State MIC Lab
+#     Date: Summer 2022
+# """
 import matplotlib.pyplot as plt
 import numpy as np
 import json
-import scipy.io
+from scipy.io import loadmat
 import random
 import os
 
 
 def folder_extract(root_dir, exercises=["E2"], myo_pref="elbow"):
-    """
-    Purpose:
-        Extract sEMG signals data from files beneath folder 'root_dir'(from args)
+    # """
+    # Purpose:
+    #     Extract sEMG signals data from files beneath folder 'root_dir'(from args)
 
-    Args:
-        1. root_dir (str):
-            Root directory of the Ninapro DB5. (With folders and files storing sEMG data underneath)
+    # Args:
+    #     1. root_dir (str):
+    #         Root directory of the Ninapro DB5. (With folders and files storing sEMG data underneath)
         
-        2. exercises (1D list, optional):
-            Exercises with dedicated gestures stored. Defaults to "E2".
-            - Note:
-                "E3" may match to file: Ninapro_DB5\s2\S2_E3_A1.mat
-                "E2" may match to file: Ninapro_DB5\s2\S2_E2_A1.mat
-                "E1" may match to file: Ninapro_DB5\s2\S2_E1_A1.mat
-            - Example:
-                ["E3", "E2"] as args collects sample from both exercise 3 and 2.
+    #     2. exercises (1D list, optional):
+    #         Exercises with dedicated gestures stored. Defaults to "E2".
+    #         - Note:
+    #             "E3" may match to file: Ninapro_DB5\s2\S2_E3_A1.mat
+    #             "E2" may match to file: Ninapro_DB5\s2\S2_E2_A1.mat
+    #             "E1" may match to file: Ninapro_DB5\s2\S2_E1_A1.mat
+    #         - Example:
+    #             ["E3", "E2"] as args collects sample from both exercise 3 and 2.
         
-        3. myo_pref (str, optional):
-            Ninapro DB5 data was collected via 2 Myo armband
-            - "elbow" collects sEMG from 1:8 channels, samples closest to elbow (From Myo Armband 1)
-            - "wrist" collects sEMG from 9:16 channels, samples closest to wrist (From Myo Armband 2)
+    #     3. myo_pref (str, optional):
+    #         Ninapro DB5 data was collected via 2 Myo armband
+    #         - "elbow" collects sEMG from 1:8 channels, samples closest to elbow (From Myo Armband 1)
+    #         - "wrist" collects sEMG from 9:16 channels, samples closest to wrist (From Myo Armband 2)
 
-            Defaults to "elbow".
+    #         Defaults to "elbow".
 
-    Returns:
-        1. (numpy.ndarray):
-            - Samples collected from "emg" column within each .mat files wihtin the folder 'root_dir'(from args)
-            - Shape: [num samples, 8(1 sEMG sample from each 8 Myo sensors/channels)]
+    # Returns:
+    #     1. (numpy.ndarray):
+    #         - Samples collected from "emg" column within each .mat files wihtin the folder 'root_dir'(from args)
+    #         - Shape: [num samples, 8(1 sEMG sample from each 8 Myo sensors/channels)]
             
-        2. (numpy.ndarray): _description_
-            - Targets/labels collected from "stimulus" column within each .mat files wihtin the folder 'root_dir'(from args)
-            - Shape: [num samples]
-    """
+    #     2. (numpy.ndarray): _description_
+    #         - Targets/labels collected from "stimulus" column within each .mat files wihtin the folder 'root_dir'(from args)
+    #         - Shape: [num samples]
+    # """
     
     emg = []
     emg_label = []
@@ -58,7 +58,7 @@ def folder_extract(root_dir, exercises=["E2"], myo_pref="elbow"):
             if file.split("_")[1] in exercises:
                 file_path = subfolder_dir + "/" + file
                 # Read .mat file
-                mat = scipy.io.loadmat(file_path)
+                mat = loadmat(file_path)
                 
                 # Get first 8 Myo sensors/channels closest to elbow
                 if myo_pref == "elbow":
@@ -104,21 +104,21 @@ def folder_extract(root_dir, exercises=["E2"], myo_pref="elbow"):
 
 
 def standarization(emg, save_path=None):
-    """
-    Purpose:
-        Apply Standarization (type feature scaling) to sEMG samples 'emg'(from args)
+    # """
+    # Purpose:
+    #     Apply Standarization (type feature scaling) to sEMG samples 'emg'(from args)
 
-    Args:
-        1. emg (numpy.ndarray):
-            The sEMG samples to apply Standarization (First output of function "folder_extract")
+    # Args:
+    #     1. emg (numpy.ndarray):
+    #         The sEMG samples to apply Standarization (First output of function "folder_extract")
             
-        2. save_path (str, optional):
-            Path of json storing MEAN and Standard Deviation for each sensor Channel. Defaults to None.
+    #     2. save_path (str, optional):
+    #         Path of json storing MEAN and Standard Deviation for each sensor Channel. Defaults to None.
 
-    Returns:
-        (numpy.ndarray):
-            sEMG signals scaled with Standarization.
-    """
+    # Returns:
+    #     (numpy.ndarray):
+    #         sEMG signals scaled with Standarization.
+    # """
 
     # Dictionary storing MEAN and Standard Deviation for each sensor Channel
     params = {i:[None, None] for i in range(8)}
@@ -158,40 +158,40 @@ def standarization(emg, save_path=None):
 
 def gestures(emg, label, targets=[0, 1, 3, 6],
              relax_shrink=80000, rand_seed=2022):
-    """
-    Purpose:
-        Organize sEMG samples to dictionary with:
-            - key: gesture/label
-            - values: array of sEMG sigals corresponding to the specific gesture/label
+    # """
+    # Purpose:
+    #     Organize sEMG samples to dictionary with:
+    #         - key: gesture/label
+    #         - values: array of sEMG sigals corresponding to the specific gesture/label
 
-    Args:
-        1. emg (numpy.ndarray):
-            The array of sEMG samples (First output of function "folder_extract" or "standarization")
+    # Args:
+    #     1. emg (numpy.ndarray):
+    #         The array of sEMG samples (First output of function "folder_extract" or "standarization")
         
-        2. label (numpy.ndarray):
-            Array of labels for the sEMG samples (Second output of function "folder_extract")
+    #     2. label (numpy.ndarray):
+    #         Array of labels for the sEMG samples (Second output of function "folder_extract")
         
-        3. targets (list, optional):
-            Array of specified wanted gesture/label. Defaults to [0, 1, 3, 6].
+    #     3. targets (list, optional):
+    #         Array of specified wanted gesture/label. Defaults to [0, 1, 3, 6].
         
-        4. relax_shrink (int, optional): Shrink size for relaxation gesture. Defaults to 80000.
+    #     4. relax_shrink (int, optional): Shrink size for relaxation gesture. Defaults to 80000.
         
-        5. rand_seed (int, optional): Random seed for shuffling before shrinking relaxation gesture samples. Defaults to 2022.
+    #     5. rand_seed (int, optional): Random seed for shuffling before shrinking relaxation gesture samples. Defaults to 2022.
 
-    Returns:
-        gestures (dict):
-            - Dictionary with:
-                - key: gesture/label
-                - values: array of sEMG sigals corresponding to the gesture/label
+    # Returns:
+    #     gestures (dict):
+    #         - Dictionary with:
+    #             - key: gesture/label
+    #             - values: array of sEMG sigals corresponding to the gesture/label
                 
-            - Structure:
-                {
-                    0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    ...
-                    num gestures (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                }
-    """
+    #         - Structure:
+    #             {
+    #                 0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 ...
+    #                 num gestures (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #             }
+    # """
     
     if relax_shrink != None:
         assert 0 in targets
@@ -212,26 +212,26 @@ def gestures(emg, label, targets=[0, 1, 3, 6],
 
 
 def plot_distribution(gestures):
-    """
-    Purpose:
-        Plot distribution of number of gesture samples in pie chart.
+    # """
+    # Purpose:
+    #     Plot distribution of number of gesture samples in pie chart.
 
-    Args:
-        1. gestures (dict):
-            (Output of function "gestures")
+    # Args:
+    #     1. gestures (dict):
+    #         (Output of function "gestures")
             
-            - Dictionary with: 
-                - key: gesture/label
-                - values: array of sEMG sigals corresponding to the gesture/label
+    #         - Dictionary with: 
+    #             - key: gesture/label
+    #             - values: array of sEMG sigals corresponding to the gesture/label
             
             
-            - Structure:
-                {
-                    0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    ...
-                }
-    """
+    #         - Structure:
+    #             {
+    #                 0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 ...
+    #             }
+    # """
     labels = []
     for _, (label, signals) in enumerate(gestures.items()):
         signals = np.array(signals)
@@ -245,53 +245,53 @@ def plot_distribution(gestures):
     
     
 def train_test_split(gestures, split_size=0.25, rand_seed=2022):
-    """
-    Purpose:
-        Perform train test split
+    # """
+    # Purpose:
+    #     Perform train test split
 
-    Args:
-        1. gestures (dict):
-            (Output of function "gestures")
+    # Args:
+    #     1. gestures (dict):
+    #         (Output of function "gestures")
             
-            - Dictionary with:
-                - key: gesture/label
-                - values: array of sEMG sigals corresponding to the gesture/label
-            - Structure:
-                {
-                    0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    ...
-                }
+    #         - Dictionary with:
+    #             - key: gesture/label
+    #             - values: array of sEMG sigals corresponding to the gesture/label
+    #         - Structure:
+    #             {
+    #                 0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 ...
+    #             }
                 
-        2. split_size (float, optional):
-            Split size, 0.25 refers to 25% test samples, 75% train samples. Defaults to 0.25.
+    #     2. split_size (float, optional):
+    #         Split size, 0.25 refers to 25% test samples, 75% train samples. Defaults to 0.25.
             
-        3. rand_seed (int, optional):
-            Random seed for random shuffling reproducibility. Defaults to 2022.
+    #     3. rand_seed (int, optional):
+    #         Random seed for random shuffling reproducibility. Defaults to 2022.
 
-    Returns:
-        1. train_gestures (dict):
-            - Dictionary with:
-                - key: gesture/label for TRAINING set
-                - values: array of sEMG sigals corresponding to the gesture/label
-            - Structure:
-                {
-                    0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    ...
-                }
+    # Returns:
+    #     1. train_gestures (dict):
+    #         - Dictionary with:
+    #             - key: gesture/label for TRAINING set
+    #             - values: array of sEMG sigals corresponding to the gesture/label
+    #         - Structure:
+    #             {
+    #                 0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 ...
+    #             }
                 
-        2. test_gestures (dict): 
-            - Dictionary with:
-                - key: gesture/label for TESTING set
-                - values: array of sEMG sigals corresponding to the gesture/label
-            - Structure:
-                {
-                    0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    ...
-                }
-    """
+    #     2. test_gestures (dict): 
+    #         - Dictionary with:
+    #             - key: gesture/label for TESTING set
+    #             - values: array of sEMG sigals corresponding to the gesture/label
+    #         - Structure:
+    #             {
+    #                 0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 ...
+    #             }
+    # """
     train_gestures = {key:None for key in gestures}
     test_gestures = {key:None for key in gestures}
     
@@ -308,36 +308,36 @@ def train_test_split(gestures, split_size=0.25, rand_seed=2022):
     
     
 def apply_window(gestures, window=32, step=16):
-    """
-    Purpose:
-        Convert sEMG signal samples to sEMG image format.
+    # """
+    # Purpose:
+    #     Convert sEMG signal samples to sEMG image format.
 
-    Args:
-        1. gestures (dict):
-            (Any output from function "gestures" or "train_test_split")
+    # Args:
+    #     1. gestures (dict):
+    #         (Any output from function "gestures" or "train_test_split")
         
-            - Dictionary with:
-                - key: gesture/label
-                - values: array of sEMG sigals corresponding to the gesture/label
-            - Structure:
-                {
-                    0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                    ...
-                    num gestures (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
-                }
+    #         - Dictionary with:
+    #             - key: gesture/label
+    #             - values: array of sEMG sigals corresponding to the gesture/label
+    #         - Structure:
+    #             {
+    #                 0 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 1 (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #                 ...
+    #                 num gestures (gesture/label) : [...] (sEMG samples of dedicated gesture/label)
+    #             }
                 
-        2. window (int, optional):
-            How many samples each sEMG image channel contains. Defaults to 52.
+    #     2. window (int, optional):
+    #         How many samples each sEMG image channel contains. Defaults to 52.
 
-    Returns:
-        1. signals (numpy.ndarray):
-            Processed sEMG signals in sEMG image format.
-            - Example shape: [num samples, 1, 8(sensors/channels), 52(window)]
+    # Returns:
+    #     1. signals (numpy.ndarray):
+    #         Processed sEMG signals in sEMG image format.
+    #         - Example shape: [num samples, 1, 8(sensors/channels), 52(window)]
             
-        2. outputs (numpy.ndarray):
-            Labels for the sEMG signals
-    """
+    #     2. outputs (numpy.ndarray):
+    #         Labels for the sEMG signals
+    # """
     inputs = []
     outputs = []
 
@@ -376,27 +376,27 @@ def apply_window(gestures, window=32, step=16):
 
 
 def realtime_preprocessing(emg, params_path=None, num_classes=4, window=32, step=16):
-    """
-    Purpose:
-        Preprocess data samples obtained from realtime.py
+    # """
+    # Purpose:
+    #     Preprocess data samples obtained from realtime.py
 
-    Args:
-        1. emg (list):
-            The sEMG samples obtained from realtime.py
+    # Args:
+    #     1. emg (list):
+    #         The sEMG samples obtained from realtime.py
         
-        2. params_path (list, optional):
-            - Path of json storing MEAN and Standard Deviation for each sensor Channel. Defaults to None.
+    #     2. params_path (list, optional):
+    #         - Path of json storing MEAN and Standard Deviation for each sensor Channel. Defaults to None.
         
-        3. num_classes (int, optional):
-            - Number of gestures/classes the new finetune model would like to classify. Defaults to 4.
+    #     3. num_classes (int, optional):
+    #         - Number of gestures/classes the new finetune model would like to classify. Defaults to 4.
 
-    Returns:
-        1. inputs (numpy.ndarray):
-            Processed sEMG signals in sEMG image format.
-            - Example shape: [num samples, 1, 8(sensors/channels), 52(window)]
-        2. outputs (numpy.ndarray):
-            Labels for the sEMG signals
-    """
+    # Returns:
+    #     1. inputs (numpy.ndarray):
+    #         Processed sEMG signals in sEMG image format.
+    #         - Example shape: [num samples, 1, 8(sensors/channels), 52(window)]
+    #     2. outputs (numpy.ndarray):
+    #         Labels for the sEMG signals
+    # """
     emg = np.array(emg)
     
     # Apply Standarization feature scaling to samples if 'params_path'(from args) was provided
